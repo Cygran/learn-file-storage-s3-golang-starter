@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"mime"
@@ -69,7 +71,13 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	case "image/png":
 		fileExtension = ".png"
 	}
-	filePath := filepath.Join(cfg.assetsRoot, videoID.String()+fileExtension)
+	randSlice := make([]byte, 32)
+	_, err = rand.Read(randSlice)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to generate filename", err)
+	}
+	filename := base64.RawURLEncoding.EncodeToString(randSlice)
+	filePath := filepath.Join(cfg.assetsRoot, filename+fileExtension)
 	newFile, err := os.Create(filePath)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Unable to create file", err)
@@ -86,7 +94,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusInternalServerError, "Unable to save file", err)
 		return
 	}
-	thumbnailURL := fmt.Sprintf("/assets/%s%s", videoID.String(), fileExtension)
+	thumbnailURL := fmt.Sprintf("http://localhost:%s/assets/%s%s", cfg.port, filename, fileExtension)
 	video.ThumbnailURL = &thumbnailURL
 	err = cfg.db.UpdateVideo(video)
 	if err != nil {
