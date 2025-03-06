@@ -86,7 +86,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Unable to create local file", err)
 		return
 	}
-	defer os.Remove("tubely-upload.mp4")
+	defer os.Remove(tempFile.Name())
 	defer tempFile.Close()
 	_, err = io.Copy(tempFile, file)
 	if err != nil {
@@ -119,7 +119,17 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		prefix = "other"
 	}
 	fileKey := fmt.Sprintf("%s/%s.mp4", prefix, base64.RawURLEncoding.EncodeToString(randSlice))
-	s3URL, err := cfg.uploadToS3(tempFile, fileKey, contentType)
+	processedVideo, err := processVideoForFastStart(tempFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to process video for fast start", err)
+	}
+	processedFile, err := os.Open(processedVideo)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to open processed video file", err)
+	}
+	defer os.Remove(processedVideo)
+	defer processedFile.Close()
+	s3URL, err := cfg.uploadToS3(processedFile, fileKey, contentType)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to upload to S3", err)
 		return
@@ -166,4 +176,14 @@ func getVideoAspectRatio(filePath string) (string, error) {
 	} else {
 		return "other", nil
 	}
+}
+
+func processVideoForFastStart(filepath string) (string, error) {
+	output_path := filepath + ".processing"
+	cmd := exec.Command("ffmpeg", "-i", filepath, "-c", "copy", "-movflags", "faststart", "-f", "mp4", output_path)
+	err := cmd.Run()
+	if err != nil {
+		return "", err
+	}
+	return output_path, nil
 }
